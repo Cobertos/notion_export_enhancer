@@ -14,9 +14,7 @@ Takes a [Notion.so](https://notion.so) export .zip and enhances it by:
 * Moves root md files into the folder with their name, giving them a name like `!index.md` instead so they sort to the top.
 
 <p align="center">
-
-![folders with emojis](https://raw.githubusercontent.com/Cobertos/notion_export_enhancer/owo/media/folders.png)
-
+    <img alt="folders with emojis" src="https://raw.githubusercontent.com/Cobertos/notion_export_enhancer/owo/media/folders.png">
 </p>
 
 TODO:
@@ -37,9 +35,7 @@ Supports Python 3.6+
   * You can export a single workspace from `Settings > [Workspace] Settings > Export Content > Export all workspace content`
 
 <p align="center">
-
-![Notion export menu for where to export workspace](https://raw.githubusercontent.com/Cobertos/notion_export_enhancer/owo/media/where-to-export.png)
-
+    <img alt="Notion export menu for where to export workspace" src="https://raw.githubusercontent.com/Cobertos/notion_export_enhancer/owo/media/where-to-export.png">
 </p>
 
   * Choose export option `"Markdown & CSV"`
