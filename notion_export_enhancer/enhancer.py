@@ -5,6 +5,7 @@ import time
 import re
 import argparse
 import zipfile
+from emoji_extractor.extract import Extractor as EmojiExtractor
 from datetime import datetime
 from pathlib import Path
 from notion.client import NotionClient
@@ -47,7 +48,7 @@ def noteNameRewrite(nCl, originalNameNoExt):
 
   # Add icon to the front if it's there and usable
   icon = pageBlock.icon
-  if icon and len(icon) == 1: #Unicode icon is 1 char, whereas custom icons are URLs, can't use those
+  if icon and EmojiExtractor().big_regex.match(icon): # A full match of a single emoji, might be None or an https://aws.amazon uploaded icon
     newName = f"{icon} {newName}"
 
   # Also get the times to set the file to
