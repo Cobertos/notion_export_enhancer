@@ -13,7 +13,11 @@ Takes a [Notion.so](https://notion.so) export .zip and enhances it by:
 * Applies Notion's modification time to the file data itself
 * Moves root md files into the folder with their name, giving them a name like `!index.md` instead so they sort to the top.
 
+<p align="center">
+
 ![folders with emojis](https://raw.githubusercontent.com/Cobertos/notion_export_enhancer/owo/media/folders.png)
+
+</p>
 
 TODO:
 * Fix links inside of files
@@ -31,7 +35,13 @@ Supports Python 3.6+
 
 * Export your notion workspace
   * You can export a single workspace from `Settings > [Workspace] Settings > Export Content > Export all workspace content`
-![Notion export menu for where to export workspace](https://github.com/Cobertos/notion_export_enhancer/owo/media/where-to-export.png)
+
+<p align="center">
+
+![Notion export menu for where to export workspace](https://raw.githubusercontent.com/Cobertos/notion_export_enhancer/owo/media/where-to-export.png)
+
+</p>
+
   * Choose export option `"Markdown & CSV"`
 * `pip install notion_export_enhancer`
 * Then run like `python -m notion_export_enhancer [token_v2] [path_to_zip]`
