@@ -59,29 +59,31 @@ def noteNameRewrite(nCl, originalNameNoExt):
 
 renameCache = {}
 collisionCache = {}
-def renameAndTimesWithNotion(nCl, originalPath):
+def renameAndTimesWithNotion(nCl, realPath):
   """
   Takes an original on file-system path and rewrites _just the basename_. It
   collects rename operations for speed and collision prevention (as some renames
   will cause the same name to occur)
   @param {NotionClient} nCl The Notion Client to use
-  @param {string} originalPath The path to rename
+  @param {string} realPath The path to rename the basename of
   @returns {tuple} 3 tuple of new name, created time and modified time
   """
-  if originalPath in renameCache:
-    return renameCache[originalPath]
+  if realPath in renameCache:
+    return renameCache[realPath]
 
-  path, name = os.path.split(originalPath)
+  path, name = os.path.split(realPath)
   nameNoExt, ext = os.path.splitext(name)
   newNameNoExt, createdTime, lastEditedTime = noteNameRewrite(nCl, nameNoExt)
   if not newNameNoExt: # No rename happened, probably no ID in the name or not an .md file
-    renameCache[originalPath] = (name, None, None)
+    renameCache[realPath] = (name, None, None)
   else:
     # Merge files into folders in path at same name if that folder exists
-    p = Path(os.path.join(path, nameNoExt))
-    if p.exists() and p.is_dir():
-      # NOTE: newNameNoExt can contain a '/' for path joining later!
-      newNameNoExt = os.path.join(newNameNoExt, "!index")
+    if ext == '.md':
+      p = Path(os.path.join(path, nameNoExt))
+      print(f"Testing path '{os.path.join(path, nameNoExt)}'")
+      if p.exists() and p.is_dir():
+        # NOTE: newNameNoExt can contain a '/' for path joining later!
+        newNameNoExt = os.path.join(newNameNoExt, "!index")
 
     # Check to see if name collides
     if os.path.join(path, newNameNoExt) in collisionCache:
@@ -92,33 +94,35 @@ def renameAndTimesWithNotion(nCl, originalPath):
         newNameNoExt = f"{collidingNameNoExt} ({i})"
         i += 1
 
-    renameCache[originalPath] = (f"{newNameNoExt}{ext}", createdTime, lastEditedTime)
+    renameCache[realPath] = (f"{newNameNoExt}{ext}", createdTime, lastEditedTime)
     collisionCache[os.path.join(path, newNameNoExt)] = True
 
-  return renameCache[originalPath]
+  return renameCache[realPath]
 
-def renameWithNotion(nCl, originalPath):
+def renameWithNotion(nCl, realPath):
   """
   Takes an original on file-system path and rewrites _just the basename_. It
   collects rename operations for speed and collision prevention (as some renames
   will cause the same name to occur)
   @param {NotionClient} nCl The Notion Client to use
-  @param {string} originalPath The path to rename
+  @param {string} realPath The path to rename the basename of
   @returns {string} The new name
   """
-  return renameAndTimesWithNotion(nCl, originalPath)[0]
+  return renameAndTimesWithNotion(nCl, realPath)[0]
 
-def renamePathWithNotion(nCl, originalPath):
+def renamePathWithNotion(nCl, realPath, pathToRename):
   """
   Renames each part of a path, recursively
   @param {NotionClient} nCl The Notion Client to use
-  @param {string} originalPath The path to rename
+  @param {string} realPath The path _on disk_ pointing to path
+  @param {string} path A relative path to rename the parts of only
   """
-  if originalPath == '' or originalPath == '.':
+  if pathToRename == '' or pathToRename == '.':
     return '' # os.path.join('', 'a') returns 'a'
 
-  path, name = os.path.split(originalPath)
-  return os.path.join(renamePathWithNotion(nCl, path), renameWithNotion(nCl, originalPath))
+  pathToRenameParent = os.path.dirname(pathToRename)
+  realPathParent = os.path.dirname(realPath)
+  return os.path.join(renamePathWithNotion(nCl, realPathParent, pathToRenameParent), renameWithNotion(nCl, realPath))
 
 
 def rewriteNotionZip(notionToken, zipPath, outputPath="."):
@@ -154,13 +158,12 @@ def rewriteNotionZip(notionToken, zipPath, outputPath="."):
       for root, dirs, files in os.walk(tmpDir):
         relRoot = os.path.relpath(root, tmpDir)
         for name in files:
-          newPath = renamePathWithNotion(cl, relRoot)
-          relRootName = os.path.join(relRoot, name)
-          newName, createdTime, lastEditedTime = renameAndTimesWithNotion(cl, relRootName)
+          # print(f"Reading '{root}' '{name}'")
+          newPath = renamePathWithNotion(cl, root, relRoot)
+          newName, createdTime, lastEditedTime = renameAndTimesWithNotion(cl, os.path.join(root, name))
           newPathName = os.path.join(newPath, newName)
 
           # print(newPath)
-          # print(relRootName)
           # print(newName)
           # print(createdTime)
           # print(lastEditedTime)
