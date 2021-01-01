@@ -5,8 +5,8 @@ import pytest
 from datetime import datetime
 import sys
 import os
-from notion_export_enhancer.enhancer import noteNameRewrite, renameAndTimesWithNotion, \
-    renameWithNotion, renamePathWithNotion
+from notion_export_enhancer.enhancer import noteNameRewrite, NotionExportRenamer, \
+    mdFileRewrite
 from notion.block import PageBlock
 from unittest.mock import Mock
 
@@ -16,8 +16,8 @@ if sys.version_info >= (3,7,0):
 else:
     seal = lambda x: x
 
-defaultBlockTimeNotion = "1609238729000"
-defaultBlockTime = datetime.fromtimestamp(1609238729)
+defaultBlockTimeNotion = "7955187742000" #2/2/2222 22:22:22
+defaultBlockTime = datetime.fromtimestamp(7955187742)
 
 def MockBlock(title='', icon=None, createdTime=defaultBlockTimeNotion, lastEditedTime=None, spec=PageBlock):
     mockBlock = Mock(spec=spec)
@@ -113,31 +113,47 @@ def test_noteNameRewrite_times():
 
 
 
-def test_renameAndTimesWithNotion_no_rename():
+def test_NotionExportRewriter_renameAndTimesWithNotion_no_rename():
     '''it will not rename paths that dont match'''
     #arrange
     nCl = MockClient()
+    rn = NotionExportRenamer(nCl, "")
 
     #act
-    ret = renameAndTimesWithNotion(nCl, 'a/b/c.png')
+    ret = rn.renameAndTimesWithNotion(os.path.join('a', 'b', 'c.png'))
 
     #assert
     assert ret == ('c.png', None, None)
 
-def test_renameAndTimesWithNotion_simple_rename():
+def test_NotionExportRewriter_renameAndTimesWithNotion_simple_rename():
     '''it will rename normal paths'''
     #arrange
     nCl = MockClient({
         '0123456789abcdef0123456789abcdef': MockBlock()
     })
+    rn = NotionExportRenamer(nCl, "")
 
     #act
-    ret = renameAndTimesWithNotion(nCl, 'a/b/c 0123456789abcdef0123456789abcdef.md')
+    ret = rn.renameAndTimesWithNotion(os.path.join('a', 'b', 'c 0123456789abcdef0123456789abcdef.md'))
 
     #assert
     assert ret == ('c.md', defaultBlockTime, defaultBlockTime)
 
-def test_renameAndTimesWithNotion_rename_collision_handle():
+def test_NotionExportRewriter_renameAndTimesWithNotion_merge_handle():
+    '''it will rename while handling collisions from previous conversions'''
+    #arrange
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': MockBlock(),
+    })
+    rn = NotionExportRenamer(nCl, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'test_files', 'merge_handle'))
+
+    #act
+    ret = rn.renameAndTimesWithNotion(os.path.join('test 0123456789abcdef0123456789abcdef.md'))
+
+    #assert
+    assert ret == (os.path.join('test','!index.md'), defaultBlockTime, defaultBlockTime)
+
+def test_NotionExportRewriter_renameAndTimesWithNotion_rename_collision_handle():
     '''it will rename while handling collisions from previous conversions'''
     #arrange
     nCl = MockClient({
@@ -145,31 +161,33 @@ def test_renameAndTimesWithNotion_rename_collision_handle():
         '00000000000000000000000000000000': MockBlock(),
         '11111111111111111111111111111111': MockBlock(),
     })
+    rn = NotionExportRenamer(nCl, "")
 
     #act
-    ret = renameAndTimesWithNotion(nCl, 'a/b/c 0123456789abcdef0123456789abcdef.md')
-    ret2 = renameAndTimesWithNotion(nCl, 'a/b/c 00000000000000000000000000000000.md')
-    ret3 = renameAndTimesWithNotion(nCl, 'a/b/c 11111111111111111111111111111111.md')
+    ret = rn.renameAndTimesWithNotion(os.path.join('a', 'b', 'c 0123456789abcdef0123456789abcdef.md'))
+    ret2 = rn.renameAndTimesWithNotion(os.path.join('a', 'b', 'c 00000000000000000000000000000000.md'))
+    ret3 = rn.renameAndTimesWithNotion(os.path.join('a', 'b', 'c 11111111111111111111111111111111.md'))
 
     #assert
     assert ret == ('c.md', defaultBlockTime, defaultBlockTime)
     assert ret2 == ('c (1).md', defaultBlockTime, defaultBlockTime)
     assert ret3 == ('c (2).md', defaultBlockTime, defaultBlockTime)
 
-def test_renameWithNotion_simple_rename():
+def test_NotionExportRewriter_renameWithNotion_simple_rename():
     '''it will rename if path matches and only return name'''
     #arrange
     nCl = MockClient({
         '0123456789abcdef0123456789abcdef': MockBlock(),
     })
+    rn = NotionExportRenamer(nCl, "")
 
     #act
-    ret = renameWithNotion(nCl, 'a/b/c 0123456789abcdef0123456789abcdef.md')
+    ret = rn.renameWithNotion(os.path.join('a', 'b', 'c 0123456789abcdef0123456789abcdef.md'))
 
     #assert
     assert ret == 'c.md'
 
-def test_renamePathWithNotion_simple_rename():
+def test_NotionExportRewriter_renamePathWithNotion_simple_rename():
     '''it will rename a full path'''
     #arrange
     nCl = MockClient({
@@ -177,11 +195,129 @@ def test_renamePathWithNotion_simple_rename():
         '00000000000000000000000000000000': MockBlock(),
         '11111111111111111111111111111111': MockBlock(),
     })
+    rn = NotionExportRenamer(nCl, os.path.join('x', 'y'))
 
     #act
-    ret = renamePathWithNotion(nCl, \
-        'a 11111111111111111111111111111111/b 00000000000000000000000000000000/c 0123456789abcdef0123456789abcdef.md', \
-        'a 11111111111111111111111111111111/b 00000000000000000000000000000000/c 0123456789abcdef0123456789abcdef.md')
+    ret = rn.renamePathWithNotion( \
+        os.path.join('a 11111111111111111111111111111111', 'b 00000000000000000000000000000000', 'c 0123456789abcdef0123456789abcdef.md'))
 
     #assert
     assert ret == os.path.join('a', 'b', 'c.md')
+
+def test_NotionExportRewriter_renamePathAndTimesWithNotion_simple_rename():
+    '''it will rename a full path'''
+    #arrange
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': MockBlock(createdTime="1000000000000", lastEditedTime="11111111111000"),
+        '00000000000000000000000000000000': MockBlock(createdTime="1555555555000", lastEditedTime="16666666666000"),
+        '11111111111111111111111111111111': MockBlock(createdTime="1555555555000", lastEditedTime="16666666666000"),
+    })
+    rn = NotionExportRenamer(nCl, os.path.join('x', 'y'))
+
+    #act
+    ret = rn.renamePathAndTimesWithNotion( \
+        os.path.join('a 11111111111111111111111111111111', 'b 00000000000000000000000000000000', 'c 0123456789abcdef0123456789abcdef.md'))
+
+    #assert
+    assert ret == (os.path.join('a', 'b', 'c.md'), datetime.fromtimestamp(1000000000), datetime.fromtimestamp(11111111111))
+
+def test_mdFileRewrite_no_op():
+    '''it will do nothing to md files by default'''
+    md = """# I'm really good at taking copypastas from reddit and putting them in 
+
+Now, this is a stowy aww about how My wife got fwipped-tuwned upside down And I'd wike to take a minute Just sit wight thewe I'ww teww you how I became the pwince of a town cawwed Bew Aiw In west Phiwadewphia bown and waised On the pwaygwound was whewe I spent most of my days Chiwwin' out maxin' wewaxin' aww coow And aww shootin some b-baww outside of the schoow When a coupwe of guys who wewe up to no good Stawted making twoubwe in my neighbowhood I got in one wittwe fight and my mom got scawed She said 'You'we movin' with youw auntie and uncwe in Bew Aiw'
+
+I begged and pweaded with hew day aftew day But she packed my suit case and sent me on my way She gave me a kiss and then she gave me my ticket. I put my Wawkman on and said, 'I might as weww kick it'.
+
+Fiwst cwass, yo this is bad Dwinking owange juice out of a champagne gwass. Is this what the peopwe of Bew-Aiw wiving wike? Hmmmmm this might be awwight.
+"""
+    nCl = MockClient()
+    rn = NotionExportRenamer(nCl, '')
+
+    #act
+    ret = mdFileRewrite(rn, os.path.join('a', 'b', 'c.md'), mdFileContents=md)
+
+    #assert
+    assert ret == md
+
+def test_mdFileRewrite_remove_top_h1():
+    '''it will remove the top h1 if configured to'''
+    md = """# Copypasta
+
+Okay but for real this is not one of those copy-ma-pastas that you people are taking about. Spaghetti
+"""
+    nCl = MockClient()
+    rn = NotionExportRenamer(nCl, '')
+
+    #act
+    ret = mdFileRewrite(rn, os.path.join('a', 'b', 'c.md'), mdFileContents=md, removeTopH1=True)
+
+    #assert
+    assert ret == """
+Okay but for real this is not one of those copy-ma-pastas that you people are taking about. Spaghetti
+"""
+
+def test_mdFileRewrite_rewrite_paths():
+    '''it will rewrite paths in the markdown if passed'''
+    md = """# Things to do with my time
+
+Okay but really, do you think that me writing this was a good use of time?
+
+[not really](https://example.com). But you know what is a good use of my time? Probably going to the grocery store and getting some food.
+
+What do I need? Maybe something [off my grocery list](Grocery%20List%200123456789abcdef0123456789abcdef.md).
+
+And here's another line just for fun
+"""
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': MockBlock(),
+    })
+    rn = NotionExportRenamer(nCl, '')
+
+    #act
+    ret = mdFileRewrite(rn, os.path.join('a', 'b', 'c.md'), mdFileContents=md, rewritePaths=True)
+
+    #assert
+    assert ret == """# Things to do with my time
+
+Okay but really, do you think that me writing this was a good use of time?
+
+[not really](https://example.com). But you know what is a good use of my time? Probably going to the grocery store and getting some food.
+
+What do I need? Maybe something [off my grocery list](Grocery%20List.md).
+
+And here's another line just for fun
+"""
+
+def test_mdFileRewrite_rewrite_path_complex():
+    '''it will rewrite paths in the markdown if passed, but more complex'''
+    md = """# Pathssss
+
+[owo](../d%200123456789abcdef0123456789abcdef.md) [ewe](../e%2044444444444444444444444444444444.md)
+
+[uwu](im%2000000000000000000000000000000000/gay%2011111111111111111111111111111111.md)
+
+[vwv](../cute%2022222222222222222222222222222222/girls%2033333333333333333333333333333333.md)
+"""
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': MockBlock(),
+        '00000000000000000000000000000000': MockBlock(),
+        '11111111111111111111111111111111': MockBlock(),
+        '22222222222222222222222222222222': MockBlock(),
+        '33333333333333333333333333333333': MockBlock(),
+        '44444444444444444444444444444444': MockBlock(),
+    })
+    rn = NotionExportRenamer(nCl, '')
+
+    #act
+    ret = mdFileRewrite(rn, os.path.join('a', 'b', 'c.md'), mdFileContents=md, rewritePaths=True)
+
+    #assert
+    assert ret == """# Pathssss
+
+[owo](../d.md) [ewe](../e.md)
+
+[uwu](im/gay.md)
+
+[vwv](../cute/girls.md)
+"""

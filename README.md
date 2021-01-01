@@ -20,9 +20,7 @@ Takes a [Notion.so](https://notion.so) export .zip and enhances it by:
 </p>
 
 TODO:
-* Fix links inside of files
 * Remove empty notes (ones with only links)?
-* Remove title at the top of notes?
 * Rewrite csv + md tables into md tables where appropriate?
 * .exe instead of .py?
 
@@ -48,6 +46,8 @@ Supports Python 3.6+
 There are also some configuration options:
 
 * `--output-path`: Optionally set an output path, otherwise uses the current working directory
+* `--remove-title`: Removes the title that Notion adds. H1s at the top of every file (default false)
+* `--rewrite-paths`: Rewrite the paths in the Markdown files themselves to match file renaming (default true)
 
 ## Contributing
 See [CONTRIBUTING.md](https://github.com/Cobertos/notion_export_enhancer/blob/master/CONTRIBUTING.md)

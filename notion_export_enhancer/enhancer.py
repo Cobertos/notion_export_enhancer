@@ -5,6 +5,7 @@ import time
 import re
 import argparse
 import zipfile
+import urllib.parse
 from emoji_extractor.extract import Extractor as EmojiExtractor
 from datetime import datetime
 from pathlib import Path
@@ -57,75 +58,142 @@ def noteNameRewrite(nCl, originalNameNoExt):
 
   return (newName, createdTime, lastEditedTime)
 
-renameCache = {}
-collisionCache = {}
-def renameAndTimesWithNotion(nCl, realPath):
+class NotionExportRenamer:
+  def __init__(self, notionClient, rootPath):
+    self.notionClient = notionClient
+    self.rootPath = rootPath
+    # Dict containing all the paths we've renamed and what they were renamed to
+    # (plus createdtime and lastEditedTime). Strings with relative directories to
+    # rootPath mapped to 3 tuples returned from noteNameRewrite
+    self._renameCache = {}
+    # Dict containing keys where it is an unrenamed path with the last part being
+    # renamed mapped to True. Used to see if other files in the folder might
+    # have the same name and to act accordingly
+    self._collisionCache = {}
+
+  def renameAndTimesWithNotion(self, pathToRename):
+    """
+    Takes an original on file-system path and rewrites _just the basename_. It
+    collects rename operations for speed and collision prevention (as some renames
+    will cause the same name to occur)
+    @param {string} realPath The path to rename the basename of. Must point to an
+    actual unrenamed file/folder on disk rooted at self.rootPath so we can scan around it
+    @returns {tuple} 3 tuple of new name, created time and modified time
+    """
+    if pathToRename in self._renameCache:
+      return self._renameCache[pathToRename]
+
+    path, name = os.path.split(pathToRename)
+    nameNoExt, ext = os.path.splitext(name)
+    newNameNoExt, createdTime, lastEditedTime = noteNameRewrite(self.notionClient, nameNoExt)
+    if not newNameNoExt: # No rename happened, probably no ID in the name or not an .md file
+      self._renameCache[pathToRename] = (name, None, None)
+    else:
+      # Merge files into folders in path at same name if that folder exists
+      if ext == '.md':
+        p = Path(os.path.join(self.rootPath, path, nameNoExt))
+        if p.exists() and p.is_dir():
+          # NOTE: newNameNoExt can contain a '/' for path joining later!
+          newNameNoExt = os.path.join(newNameNoExt, "!index")
+
+      # Check to see if name collides
+      if os.path.join(path, newNameNoExt) in self._collisionCache:
+        # If it does, try progressive (i) until a new one is found
+        i = 1
+        collidingNameNoExt = newNameNoExt
+        while os.path.join(path, newNameNoExt) in self._collisionCache:
+          newNameNoExt = f"{collidingNameNoExt} ({i})"
+          i += 1
+
+      self._renameCache[pathToRename] = (f"{newNameNoExt}{ext}", createdTime, lastEditedTime)
+      self._collisionCache[os.path.join(path, newNameNoExt)] = True
+
+    return self._renameCache[pathToRename]
+
+  def renameWithNotion(self, pathToRename):
+    """
+    Takes an original on file-system path and rewrites _just the basename_. It
+    collects rename operations for speed and collision prevention (as some renames
+    will cause the same name to occur)
+    @param {string} pathToRename The path to rename the basename of. Must point to an
+    actual unrenamed file/folder on disk rooted at self.rootPath so we can scan around it
+    @returns {string} The new name
+    """
+    return self.renameAndTimesWithNotion(pathToRename)[0]
+
+  def renamePathWithNotion(self, pathToRename):
+    """
+    Renames all parts of a path
+    @param {string} pathToRename A real path on disk to a file or folder root at
+    self.rootPath. All pieces of the path will be renamed
+    """
+    pathToRenameSplit = re.split(r"[\\/]", pathToRename)
+    paths = [os.path.join(*pathToRenameSplit[0:rpc + 1]) for rpc in range(len(pathToRenameSplit))]
+    return os.path.join(*[self.renameWithNotion(rp) for rp in paths])
+
+  def renamePathAndTimesWithNotion(self, pathToRename):
+    """
+    Renames all parts of a path and return the created and lastEditedTime for the last
+    part of the path (the file)
+    @param {string} pathToRename A real path on disk to a file or folder root at
+    self.rootPath. All pieces of the path will be renamed
+    """
+    newPath = self.renamePathWithNotion(os.path.dirname(pathToRename))
+    newName, createdTime, lastEditedTime = self.renameAndTimesWithNotion(pathToRename)
+    return (os.path.join(newPath, newName), createdTime, lastEditedTime)
+
+def mdFileRewrite(renamer, mdFilePath, mdFileContents=None, removeTopH1=False, rewritePaths=False):
   """
-  Takes an original on file-system path and rewrites _just the basename_. It
-  collects rename operations for speed and collision prevention (as some renames
-  will cause the same name to occur)
-  @param {NotionClient} nCl The Notion Client to use
-  @param {string} realPath The path to rename the basename of
-  @returns {tuple} 3 tuple of new name, created time and modified time
+  Takes a Notion exported md file and rewrites parts of it
+  @param {string} mdFilePath String to the markdown file that's being editted, rooted at
+  self.rootPath
+  @param {string} [mdFileContents=None] The contents of the markdown file, if not provided
+  we will read it manually
+  @param {boolean} [removeTopH1=False] Remove the title on the first line of the MD file?
+  @param {boolean} [rewritePaths=False] Rewrite the relative paths in the MD file (images and links)
+  using Notion file name rewriting
   """
-  if realPath in renameCache:
-    return renameCache[realPath]
+  if not mdFileContents:
+    raise NotImplementedError("TODO: Not passing mdFileContents is not implemented... please pass it ;w;")
 
-  path, name = os.path.split(realPath)
-  nameNoExt, ext = os.path.splitext(name)
-  newNameNoExt, createdTime, lastEditedTime = noteNameRewrite(nCl, nameNoExt)
-  if not newNameNoExt: # No rename happened, probably no ID in the name or not an .md file
-    renameCache[realPath] = (name, None, None)
-  else:
-    # Merge files into folders in path at same name if that folder exists
-    if ext == '.md':
-      p = Path(os.path.join(path, nameNoExt))
-      print(f"Testing path '{os.path.join(path, nameNoExt)}'")
-      if p.exists() and p.is_dir():
-        # NOTE: newNameNoExt can contain a '/' for path joining later!
-        newNameNoExt = os.path.join(newNameNoExt, "!index")
+  newMDFileContents = mdFileContents
+  if removeTopH1:
+    lines = mdFileContents.split("\n")
+    newMDFileContents = "\n".join(lines[1:])
 
-    # Check to see if name collides
-    if os.path.join(path, newNameNoExt) in collisionCache:
-      # If it does, try progressive (i) until a new one is found
-      i = 1
-      collidingNameNoExt = newNameNoExt
-      while os.path.join(path, newNameNoExt) in collisionCache:
-        newNameNoExt = f"{collidingNameNoExt} ({i})"
-        i += 1
+  if rewritePaths:
+    # Notion link/images use relative paths to other notes, which we can't known without
+    # consulting the file tree and renaming (to handle duplicates and such)
+    # Notion links are also URL encoded
+    # Can't use finditer because we modify the string each time...
+    searchStartIndex = 0
+    while True:
+      m = re.search(r"!?\[.+?\]\(([\w\d\-._~:/?=#%\]\[@!$&'\(\)*+,;]+?)\)", newMDFileContents[searchStartIndex:])
+      if not m:
+        break
 
-    renameCache[realPath] = (f"{newNameNoExt}{ext}", createdTime, lastEditedTime)
-    collisionCache[os.path.join(path, newNameNoExt)] = True
+      if re.search(r":/", m.group(1)):
+        searchStartIndex = searchStartIndex + m.end(1)
+        continue # Not a local file path
+      relTargetFilePath = urllib.parse.unquote(m.group(1))
 
-  return renameCache[realPath]
+      # Convert the current MD file path and link target path to the renamed version
+      mdDirPath = os.path.dirname(mdFilePath)
+      newMDDirPath = renamer.renamePathWithNotion(mdDirPath)
+      newTargetFilePath = renamer.renamePathWithNotion(os.path.join(mdDirPath, relTargetFilePath))
+      # Find the relative link but in the renamed version
+      newRelTargetFilePath = os.path.relpath(newTargetFilePath, newMDDirPath)
+      newRelTargetFilePath = re.sub(r"\\", "/", newRelTargetFilePath)
+      newRelTargetFilePath = urllib.parse.quote(newRelTargetFilePath)
 
-def renameWithNotion(nCl, realPath):
-  """
-  Takes an original on file-system path and rewrites _just the basename_. It
-  collects rename operations for speed and collision prevention (as some renames
-  will cause the same name to occur)
-  @param {NotionClient} nCl The Notion Client to use
-  @param {string} realPath The path to rename the basename of
-  @returns {string} The new name
-  """
-  return renameAndTimesWithNotion(nCl, realPath)[0]
+      # Replace the path in the original string with the new relative renamed
+      # target path
+      newMDFileContents = newMDFileContents[0:m.start(1) + searchStartIndex] + newRelTargetFilePath + newMDFileContents[m.end(1) + searchStartIndex:]
+      searchStartIndex = searchStartIndex + m.start(1) + len(newRelTargetFilePath)
 
-def renamePathWithNotion(nCl, realPath, pathToRename):
-  """
-  Renames each part of a path, recursively
-  @param {NotionClient} nCl The Notion Client to use
-  @param {string} realPath The path _on disk_ pointing to path
-  @param {string} path A relative path to rename the parts of only
-  """
-  if pathToRename == '' or pathToRename == '.':
-    return '' # os.path.join('', 'a') returns 'a'
+  return newMDFileContents
 
-  pathToRenameParent = os.path.dirname(pathToRename)
-  realPathParent = os.path.dirname(realPath)
-  return os.path.join(renamePathWithNotion(nCl, realPathParent, pathToRenameParent), renameWithNotion(nCl, realPath))
-
-
-def rewriteNotionZip(notionToken, zipPath, outputPath="."):
+def rewriteNotionZip(notionToken, zipPath, outputPath=".", removeTopH1=False, rewritePaths=True):
   """
   Takes a Notion .zip and prettifies the whole thing
   * Removes all Notion IDs from end of names, folders and files
@@ -155,35 +223,29 @@ def rewriteNotionZip(notionToken, zipPath, outputPath="."):
     with zipfile.ZipFile(os.path.join(outputPath, newZipName), 'w', zipfile.ZIP_DEFLATED) as zf:
 
       #Traverse over the files, renaming, modifying, and rewriting back to the zip
-      for root, dirs, files in os.walk(tmpDir):
-        relRoot = os.path.relpath(root, tmpDir)
+      renamer = NotionExportRenamer(cl, tmpDir)
+      for tmpWalkDir, dirs, files in os.walk(tmpDir):
+        walkDir = os.path.relpath(tmpWalkDir, tmpDir)
         for name in files:
+          realPath = os.path.join(tmpWalkDir, name)
+          relPath = os.path.join("" if walkDir == "." else walkDir, name) # Prevent paths starting with .\\ which, when written to the tar, do annoying things
           # print(f"Reading '{root}' '{name}'")
-          newPath = renamePathWithNotion(cl, root, relRoot)
-          newName, createdTime, lastEditedTime = renameAndTimesWithNotion(cl, os.path.join(root, name))
-          newPathName = os.path.join(newPath, newName)
 
-          # print(newPath)
-          # print(newName)
-          # print(createdTime)
-          # print(lastEditedTime)
+          # Rewrite the current path and get the times from Notion
+          newPath, createdTime, lastEditedTime = renamer.renamePathAndTimesWithNotion(relPath)
 
           if os.path.splitext(name)[1] == ".md":
             # Grab the data from the file if md file
-            with open(os.path.join(root, name), "r", encoding='utf-8') as f:
+            with open(realPath, "r", encoding='utf-8') as f:
               mdFileData = f.read()
-            
-            # TODO:
-            # Rewrite all the links in the file itself, rename using same renaming
-            # algorithm
-            # s = re.sub(r"^\[([\w\s\d]+)\]\(((?:\/|https?:\/\/)[\w\d./?=#]+)\)$", r"", s)
+            newMDFileData = mdFileRewrite(renamer, relPath, mdFileContents=mdFileData, removeTopH1=removeTopH1, rewritePaths=rewritePaths)
 
-            print(f"Writing '{newName}' with time '{lastEditedTime}' renamed from '{name}'")
-            zi = zipfile.ZipInfo(newPathName, lastEditedTime.timetuple())
+            print(f"Writing '{newPath}' with time '{lastEditedTime}' renamed from '{relPath}'")
+            zi = zipfile.ZipInfo(newPath, lastEditedTime.timetuple())
             zf.writestr(zi, mdFileData)
           else:
-            print(f"Writing '{newName}'")
-            zf.write(os.path.join(root, name), newPathName)
+            print(f"Writing '{newPath}'")
+            zf.write(realPath, newPath)
 
 
 def cli(argv):
@@ -194,10 +256,14 @@ def cli(argv):
                       help='the path to the Notion exported .zip file')
   parser.add_argument('--output-path', action='store', type=str, default=".",
                       help='The path to output to, defaults to cwd')
+  parser.add_argument('--remove-title', action='store_true',
+                      help='Removes the title that Notion adds. H1s at the top of every file')
+  parser.add_argument('--rewrite-paths', action='store_false', default=True,
+                      help='Rewrite the paths in the Markdown files themselves to match file renaming')
   args = parser.parse_args(argv)
 
   startTime = time.time()
-  rewriteNotionZip(args.token_v2, args.zip_path, args.output_path)
+  rewriteNotionZip(args.token_v2, args.zip_path, outputPath=args.output_path, removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)
   print("--- Finished in %s seconds ---" % (time.time() - startTime))
 
 if __name__ == "__main__":
