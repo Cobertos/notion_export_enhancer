@@ -149,8 +149,8 @@ def test_NotionExportRewriter_renameAndTimesWithNotion_merge_handle():
     rn = NotionExportRenamer(nCl, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'test_files', 'merge_handle'))
     print(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'test_files', 'merge_handle'))
     spl = re.split(r"[\\/]", os.path.join(os.path.dirname(os.path.realpath(__file__)), 'test_files', 'merge_handle'))
-    for p in range(len(spl)):
-        pp = os.path.join(*spl[0:p+1])
+    for p in range(len(spl)-1):
+        pp = os.path.join(*spl[0:p+2])
         print(pp)
         print(os.listdir(pp))
 
