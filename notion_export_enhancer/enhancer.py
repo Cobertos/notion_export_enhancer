@@ -178,11 +178,13 @@ def mdFileRewrite(renamer, mdFilePath, mdFileContents=None, removeTopH1=False, r
       relTargetFilePath = urllib.parse.unquote(m.group(1))
 
       # Convert the current MD file path and link target path to the renamed version
+      # (also taking into account potentially mdFilePath renames moving the directory)
       mdDirPath = os.path.dirname(mdFilePath)
-      newMDDirPath = renamer.renamePathWithNotion(mdDirPath)
       newTargetFilePath = renamer.renamePathWithNotion(os.path.join(mdDirPath, relTargetFilePath))
-      # Find the relative link but in the renamed version
+      newMDDirPath = os.path.dirname(renamer.renamePathWithNotion(mdFilePath))
+      # Find the relative path to the newly converted paths for both files
       newRelTargetFilePath = os.path.relpath(newTargetFilePath, newMDDirPath)
+      # Convert back to the way markdown expects the link to be
       newRelTargetFilePath = re.sub(r"\\", "/", newRelTargetFilePath)
       newRelTargetFilePath = urllib.parse.quote(newRelTargetFilePath)
 
@@ -193,7 +195,7 @@ def mdFileRewrite(renamer, mdFilePath, mdFileContents=None, removeTopH1=False, r
 
   return newMDFileContents
 
-def rewriteNotionZip(notionToken, zipPath, outputPath=".", removeTopH1=False, rewritePaths=True):
+def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, rewritePaths=True):
   """
   Takes a Notion .zip and prettifies the whole thing
   * Removes all Notion IDs from end of names, folders and files
@@ -201,16 +203,15 @@ def rewriteNotionZip(notionToken, zipPath, outputPath=".", removeTopH1=False, re
   * For files had content in Notion, move them inside the folder, and set the
     name to something that will sort to the top
   * Fix links inside of files
+  * Optionally remove titles at the tops of files
 
-  TODO: Maybe?
-  * Remove empty notes (ones with only links)?
-  * Remove title at the top of notes?
-  @param {string} packagePath The path to the Notion zip
-  @param {string} [outputPath=""] Optional output path, otherwise will use cwd
+  @param {NotionClient} notionClient The NotionClient to use to query Notion with
+  @param {string} zipPath The path to the Notion zip
+  @param {string} [outputPath="."] Optional output path, otherwise will use cwd
+  @param {boolean} [removeTopH1=False] To remove titles at the top of all the md files
+  @param {boolean} [rewritePaths=True] To rewrite all the links and images in the Markdown files too
+  @returns {string} Path to the output zip file
   """
-  #print(notionToken, zipPath, outputPath);
-  cl = NotionClient(token_v2=notionToken)
-
   with tempfile.TemporaryDirectory() as tmpDir:
     # Unpack the whole thing first (probably faster than traversing it zipped, like with tar files)
     print(f"Extracting '{zipPath}' temporarily...")
@@ -220,10 +221,11 @@ def rewriteNotionZip(notionToken, zipPath, outputPath=".", removeTopH1=False, re
     # Make new zip to begin filling
     zipName = os.path.basename(zipPath)
     newZipName = f"{zipName}.formatted"
-    with zipfile.ZipFile(os.path.join(outputPath, newZipName), 'w', zipfile.ZIP_DEFLATED) as zf:
+    newZipPath = os.path.join(outputPath, newZipName)
+    with zipfile.ZipFile(newZipPath, 'w', zipfile.ZIP_DEFLATED) as zf:
 
       #Traverse over the files, renaming, modifying, and rewriting back to the zip
-      renamer = NotionExportRenamer(cl, tmpDir)
+      renamer = NotionExportRenamer(notionClient, tmpDir)
       for tmpWalkDir, dirs, files in os.walk(tmpDir):
         walkDir = os.path.relpath(tmpWalkDir, tmpDir)
         for name in files:
@@ -238,7 +240,7 @@ def rewriteNotionZip(notionToken, zipPath, outputPath=".", removeTopH1=False, re
             # Grab the data from the file if md file
             with open(realPath, "r", encoding='utf-8') as f:
               mdFileData = f.read()
-            newMDFileData = mdFileRewrite(renamer, relPath, mdFileContents=mdFileData, removeTopH1=removeTopH1, rewritePaths=rewritePaths)
+            mdFileData = mdFileRewrite(renamer, relPath, mdFileContents=mdFileData, removeTopH1=removeTopH1, rewritePaths=rewritePaths)
 
             print(f"Writing '{newPath}' with time '{lastEditedTime}' renamed from '{relPath}'")
             zi = zipfile.ZipInfo(newPath, lastEditedTime.timetuple())
@@ -246,6 +248,7 @@ def rewriteNotionZip(notionToken, zipPath, outputPath=".", removeTopH1=False, re
           else:
             print(f"Writing '{newPath}'")
             zf.write(realPath, newPath)
+  return newZipPath
 
 
 def cli(argv):
@@ -263,7 +266,8 @@ def cli(argv):
   args = parser.parse_args(argv)
 
   startTime = time.time()
-  rewriteNotionZip(args.token_v2, args.zip_path, outputPath=args.output_path, removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)
+  nCl = NotionClient(token_v2=args.token_v2)
+  rewriteNotionZip(nCl, args.zip_path, outputPath=args.output_path, removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)
   print("--- Finished in %s seconds ---" % (time.time() - startTime))
 
 if __name__ == "__main__":

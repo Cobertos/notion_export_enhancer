@@ -6,8 +6,9 @@ from datetime import datetime
 import sys
 import os
 import re
+import zipfile
 from notion_export_enhancer.enhancer import noteNameRewrite, NotionExportRenamer, \
-    mdFileRewrite
+    mdFileRewrite, rewriteNotionZip
 from notion.block import PageBlock
 from unittest.mock import Mock
 
@@ -17,6 +18,7 @@ if sys.version_info >= (3,7,0):
 else:
     seal = lambda x: x
 
+testsRoot = os.path.dirname(os.path.realpath(__file__))
 defaultBlockTimeNotion = "7955187742000" #2/2/2222 22:22:22
 defaultBlockTime = datetime.fromtimestamp(7955187742)
 
@@ -146,7 +148,7 @@ def test_NotionExportRewriter_renameAndTimesWithNotion_merge_handle():
     nCl = MockClient({
         '0123456789abcdef0123456789abcdef': MockBlock(),
     })
-    rn = NotionExportRenamer(nCl, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'test_files', 'merge_handle'))
+    rn = NotionExportRenamer(nCl, os.path.join(testsRoot, 'test_files', 'merge_handle'))
 
     #act
     ret = rn.renameAndTimesWithNotion('test 0123456789abcdef0123456789abcdef.md')
@@ -209,9 +211,9 @@ def test_NotionExportRewriter_renamePathAndTimesWithNotion_simple_rename():
     '''it will rename a full path'''
     #arrange
     nCl = MockClient({
-        '0123456789abcdef0123456789abcdef': MockBlock(createdTime="1000000000000", lastEditedTime="11111111111000"),
-        '00000000000000000000000000000000': MockBlock(createdTime="1555555555000", lastEditedTime="16666666666000"),
-        '11111111111111111111111111111111': MockBlock(createdTime="1555555555000", lastEditedTime="16666666666000"),
+        '0123456789abcdef0123456789abcdef': MockBlock(createdTime="1000000000000", lastEditedTime="1111111111000"),
+        '00000000000000000000000000000000': MockBlock(createdTime="1555555555000", lastEditedTime="1666666666000"),
+        '11111111111111111111111111111111': MockBlock(createdTime="1555555555000", lastEditedTime="1666666666000"),
     })
     rn = NotionExportRenamer(nCl, os.path.join('x', 'y'))
 
@@ -220,7 +222,7 @@ def test_NotionExportRewriter_renamePathAndTimesWithNotion_simple_rename():
         os.path.join('a 11111111111111111111111111111111', 'b 00000000000000000000000000000000', 'c 0123456789abcdef0123456789abcdef.md'))
 
     #assert
-    assert ret == (os.path.join('a', 'b', 'c.md'), datetime.fromtimestamp(1000000000), datetime.fromtimestamp(11111111111))
+    assert ret == (os.path.join('a', 'b', 'c.md'), datetime.fromtimestamp(1000000000), datetime.fromtimestamp(1111111111))
 
 def test_mdFileRewrite_no_op():
     '''it will do nothing to md files by default'''
@@ -322,3 +324,56 @@ def test_mdFileRewrite_rewrite_path_complex():
 
 [vwv](../cute/girls.md)
 """
+
+def test_rewriteNotionZip_simple():
+    '''it will rewrite an entire zip file (simple, 1 file, 1 id, no special markdown)'''
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': MockBlock(createdTime="1000000000000", lastEditedTime="1609459200000"), #1/1/2021 12:00:00 AM
+    })
+
+    #act
+    outputFilePath = rewriteNotionZip(nCl, os.path.join(testsRoot, 'test_files', 'zip_simple.zip'))
+
+    #assert
+    with zipfile.ZipFile(outputFilePath) as zf:
+        assert zf.testzip() == None
+        assert zf.namelist() == ['test.md']
+        assert zf.open('test.md').read().decode('utf-8') == "Simple zip test"
+        i = zf.getinfo('test.md')
+        assert i.date_time == datetime.fromtimestamp(1609459200).timetuple()[0:6]
+
+def test_rewriteNotionZip_complex():
+    '''it will rewrite an entire zip file (simple, 1 file, 1 id, no special markdown)'''
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': MockBlock(lastEditedTime="1609459200000"), #1/1/2021 12:00:00 AM
+        '00000000000000000000000000000000': MockBlock(lastEditedTime="1609459200000"), #1/1/2021 12:00:00 AM
+        '11111111111111111111111111111111': MockBlock(icon="📟", lastEditedTime="1609459200000"), #1/1/2021 12:00:00 AM
+    })
+
+    #act
+    outputFilePath = rewriteNotionZip(nCl, os.path.join(testsRoot, 'test_files', 'zip_complex.zip'))
+
+    #assert
+    with zipfile.ZipFile(outputFilePath) as zf:
+        assert zf.testzip() == None
+        assert set(zf.namelist()) == set(['beep/!index.md', 'beep/📟 types.md', 'device.md', 'something_else.csv'])
+        assert zf.open('beep/!index.md').read().decode('utf-8') == """# Beep
+
+A tiny little sound
+it feels ever so comforting
+an impulse and then it's gone
+but the effect ripples through your body
+
+[Types](%F0%9F%93%9F%20types.md)"""
+        assert zf.open('device.md').read().decode('utf-8') == """You come across a small device
+It's covered in ash and debris
+The smooth body has faint ridges that trace your palms
+Until it gives and it lets out a soft
+[_Beep_](beep/%21index.md)"""
+        assert zf.open('beep/📟 types.md').read().decode('utf-8') == """# Types of beeps
+
+* Small
+* Soft
+* Agile
+
+[beep](../device.md)"""
