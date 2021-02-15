@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='notion_export_enhancer',
-    version='0.0.4',
+    version='0.0.5',
     description='Export and _enhance_, takes Notion\'s export and makes it just a bit more usable.',
     long_description=open('README.md', 'r').read(),
     long_description_content_type="text/markdown",
