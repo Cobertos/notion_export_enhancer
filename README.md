@@ -23,9 +23,8 @@ TODO:
 * Remove empty notes (ones with only links)?
 * Rewrite csv + md tables into md tables where appropriate?
 * .exe instead of .py?
-
-Limitations:
-* Only supports v11 emojis in icons. [Issue](https://github.com/alexanderrobertson/emoji-extractor/issues/1)
+* Image captions should become MD alt image text, not a separate paragraph
+  * Would require exporting everything ourselves, paragraph after image is ambiguous
 
 Supports Python 3.6+
 

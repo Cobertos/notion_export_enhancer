@@ -23,7 +23,7 @@ setup(
         'Topic :: Utilities'
     ],
     install_requires=[
-        'emoji_extractor>=1.0.17',
+        'emoji_extractor>=1.0.19',
         'notion>=0.0.27',
     ],
     keywords='notion notion.so notion-py markdown md export enhance enhancer',
