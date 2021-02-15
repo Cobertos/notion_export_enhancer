@@ -13,3 +13,5 @@ venv-ci/
 .cache/
 .coverage
 htmlcov
+zip_complex.zip.formatted
+zip_simple.zip.formatted
