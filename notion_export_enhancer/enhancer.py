@@ -28,38 +28,28 @@ def noteNameRewrite(nCl, originalNameNoExt):
   notionId = match[2]
 
   # Query notion for the ID
-  # print(f"Fetching Notion ID '{notionId}' for '{originalNameNoExt}'")
+  print(f"Fetching Notion ID '{notionId}' for '{originalNameNoExt}'")
   try:
     pageBlock = nCl.get_block(notionId)
+    print("Request success")
   except:
-    # print("Encountered a Notion ID that did not resolve when attempting to download.")
-    error_count['ClientHTTP'] += 1
-    return (None, None, None)
+    print("Encountered a Notion ID that did not resolve when attempting to load.")
+    return(None, None, None)
+    
   # print(f"Was type '{type(pageBlock).__name__}'")
   # The ID might not be a PageBlock (like when a note with no child PageBlocks
   # has an image in it, generating a folder, Notion uses the ID of the first
   # ImageBlock, maybe a bug on Notion's end? lol)
-  while not isinstance(pageBlock, PageBlock):
-    try:
-      pageBlock = pageBlock.parent
-      # print(f"Found parent '{type(pageBlock).__name__}' instead")
-      break
-    except AttributeError:
-      for block in pageBlock.children:
-        try:
-          pageBlock = block
-          if isinstance(pageBlock, Block):
-            break
-            # If the pageBlock has no attribute 'parent', use the pageBlock's first valid child block instead.
-            # print(f"Found child '{type(pageBlock).__name__}' instead")
-        except TypeError:
-          continue
-        else:
-          continue
-    else:
-      # If the block has no valid parent and no valid children, act as though it had failed the earlier match
-      error_count['NoParent'] += 1
-      return (None, None, None)
+  
+  if hasattr(pageBlock, 'parent') and pageBlock is not None:
+    for block in pageBlock.children:
+      if isinstance(block, PageBlock):
+        pageBlock = block
+        break
+      else:
+        continue
+  else:
+    return (None, None, None)
 
   # Check for name truncation
   newName = match[1]
@@ -73,15 +63,47 @@ def noteNameRewrite(nCl, originalNameNoExt):
       newName = newName[0:200]
 
   # Add icon to the front if it's there and usable
-  icon = pageBlock.icon
-  if icon and EmojiExtractor().big_regex.match(icon): # A full match of a single emoji, might be None or an https://aws.amazon uploaded icon
-    newName = f"{icon} {newName}"
+  if hasattr(pageBlock, 'icon'):  
+    icon = pageBlock.icon
+    if icon and EmojiExtractor().big_regex.match(icon): # A full match of a single emoji, might be None or an https://aws.amazon uploaded icon
+      newName = f"{icon} {newName}"
 
   # Also get the times to set the file to
   createdTime = datetime.fromtimestamp(int(pageBlock._get_record_data()["created_time"])/1000)
   lastEditedTime = datetime.fromtimestamp(int(pageBlock._get_record_data()["last_edited_time"])/1000)
 
   return (newName, createdTime, lastEditedTime)
+
+def dateInput():
+  """
+  Asks the user what they'd like to do to recover from a block's
+  time information not coming through properly. Uses an input() function
+  to control how the function behaves and returns.
+   - Input is sanitised and coerced into an integer
+   - Creates a helper function to find the zipfile's modification date
+   - Creates a helper function to convert zipfile's modification date
+  """
+
+  funcMessage = """This block's creation and last-edited times have been corrupted.\n
+  Would you like to (please enter a number from 1 to 3):\n
+  1. Use a default date (to manually change later),\n
+  2. Enter a custome date,\n
+  3. Skip loading this block, or\n
+  """    
+  userChoice = int(input(funcMessage).strip())
+  if userChoice == 1:
+    zipTimeTuple = (1980, 1, 1, 0, 0, 0)
+  elif userChoice == 2:
+    zipTimeTuple = (0, 0, 0, 0, 0, 0)
+    while (zipTimeTuple[0] not in range(1980, 2100)) and (zipTimeTuple[1] not in range(1, 13)) and (zipTimeTuple[2] not in range(1, 32)) and (zipTimeTuple[3] not in range(1, 13)) and (zipTimeTuple[4] not in range(1, 60)) and (zipTimeTuple[5] not in range(1, 60)):
+      print("Please follow the ranges requested or the questions will loop until you do.")
+      zipTimeTuple = (int(input("Year (format YYYY): ")), int(input("Month (format 1-12): ")), int(input("Day (format 1-31): ")), int(input("Hour (format 1-12): ")), int(input("Minute (format 1-59): ")), int(input("Second (format 1-59): ")))
+  elif userChoice == 3:
+    zipTimeTuple = (0, 0, 0, 0, 0, 0)
+  else:
+    print("Sorry, could you please make sure your response is a digit from 1 to 3?")
+    onceMore = dateInput()
+  return zipTimeTuple
 
 class NotionExportRenamer:
   def __init__(self, notionClient, rootPath):
@@ -271,7 +293,12 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
             try:
               zi = zipfile.ZipInfo(newPath, lastEditedTime.timetuple())
             except AttributeError as error:
-              zi = zipfile.ZipInfo(newPath, date_time=(1980,1,1,0,0,0))
+              dateResponse = dateInput()
+              print(dateResponse)
+              if dateResponse == (0, 0, 0, 0, 0, 0):
+                print("Null tuple should collapse this loop before assignment.")
+                break
+              zi = zipfile.ZipInfo(newPath, dateResponse)
               error_count['NoneTime'] += 1
               # print(f"The timestamp returned a NoneType value, file time set to limit by default: {error}")
             zf.writestr(zi, mdFileData)
