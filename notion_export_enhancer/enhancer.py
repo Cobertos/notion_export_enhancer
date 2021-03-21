@@ -79,31 +79,39 @@ def dateInput():
   Asks the user what they'd like to do to recover from a block's
   time information not coming through properly. Uses an input() function
   to control how the function behaves and returns.
-   - Input is sanitised and coerced into an integer
-   - Creates a helper function to find the zipfile's modification date
-   - Creates a helper function to convert zipfile's modification date
   """
 
   funcMessage = """This block's creation and last-edited times have been corrupted.\n
   Would you like to (please enter a number from 1 to 3):\n
   1. Use a default date (to manually change later),\n
   2. Enter a custome date,\n
-  3. Skip loading this block, or\n
+  3. Skip loading this block.\n
   """    
-  userChoice = int(input(funcMessage).strip())
-  if userChoice == 1:
-    zipTimeTuple = (1980, 1, 1, 0, 0, 0)
-  elif userChoice == 2:
-    zipTimeTuple = (0, 0, 0, 0, 0, 0)
-    while (zipTimeTuple[0] not in range(1980, 2100)) and (zipTimeTuple[1] not in range(1, 13)) and (zipTimeTuple[2] not in range(1, 32)) and (zipTimeTuple[3] not in range(1, 13)) and (zipTimeTuple[4] not in range(1, 60)) and (zipTimeTuple[5] not in range(1, 60)):
-      print("Please follow the ranges requested or the questions will loop until you do.")
-      zipTimeTuple = (int(input("Year (format YYYY): ")), int(input("Month (format 1-12): ")), int(input("Day (format 1-31): ")), int(input("Hour (format 1-12): ")), int(input("Minute (format 1-59): ")), int(input("Second (format 1-59): ")))
-  elif userChoice == 3:
-    zipTimeTuple = (0, 0, 0, 0, 0, 0)
+  
+  zipTimeTuple = (0, 0, 0, 0, 0, 0)
+  rawchoice = 1 # Giving rawchoice a default value to avoid carryover None bug
+  rawchoice = input(funcMessage)
+  if (rawchoice is not None) and (rawchoice != ""):
+    print("Rawchoice is not None.")
+    userChoice = int(rawchoice)
+    print(type(userChoice), ": ", userChoice)
+    if userChoice == 1:
+      zipTimeTuple = (1980, 1, 1, 0, 0, 0)
+      return zipTimeTuple
+    elif userChoice == 2:
+      while (zipTimeTuple[0] not in range(1980, 2100)) and (zipTimeTuple[1] not in range(1, 13)) and (zipTimeTuple[2] not in range(1, 32)) and (zipTimeTuple[3] not in range(1, 13)) and (zipTimeTuple[4] not in range(1, 60)) and (zipTimeTuple[5] not in range(1, 60)):
+        print("Please follow the ranges requested or the questions will loop until you do.")
+        zipTimeTuple = (int(input("Year (format YYYY): ")), int(input("Month (format 1-12): ")), int(input("Day (format 1-31): ")), int(input("Hour (format 1-12): ")), int(input("Minute (format 1-59): ")), int(input("Second (format 1-59): ")))
+        return zipTimeTuple
+    elif userChoice == 3:
+      zipTimeTuple = (0, 0, 0, 0, 0, 0)
+      return zipTimeTuple
+    else:
+      print("Sorry, could you please make sure your response is a digit from 1 to 3?")
+      onceMore = dateInput()
   else:
     print("Sorry, could you please make sure your response is a digit from 1 to 3?")
     onceMore = dateInput()
-  return zipTimeTuple
 
 class NotionExportRenamer:
   def __init__(self, notionClient, rootPath):
@@ -292,7 +300,7 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
             print(f"Writing '{newPath}' with time '{lastEditedTime}' renamed from '{relPath}'")
             try:
               zi = zipfile.ZipInfo(newPath, lastEditedTime.timetuple())
-            except AttributeError as error:
+            except (TypeError, AttributeError) as error:
               dateResponse = dateInput()
               print(dateResponse)
               if dateResponse == (0, 0, 0, 0, 0, 0):
