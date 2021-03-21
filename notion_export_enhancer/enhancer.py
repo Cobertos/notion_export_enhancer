@@ -12,6 +12,8 @@ from pathlib import Path
 from notion.client import NotionClient
 from notion.block import PageBlock
 
+error_count = { 'NoParent' : 0, 'ClientHTTP' : 0, 'NoneTime' : 0}
+
 def noteNameRewrite(nCl, originalNameNoExt):
   """
   Takes original name (with no extension) and renames it using the Notion ID
@@ -26,15 +28,38 @@ def noteNameRewrite(nCl, originalNameNoExt):
   notionId = match[2]
 
   # Query notion for the ID
-  #print(f"Fetching Notion ID '{notionId}' for '{originalNameNoExt}'")
-  pageBlock = nCl.get_block(notionId)
-  #print(f"Was type '{type(pageBlock).__name__}'")
+  # print(f"Fetching Notion ID '{notionId}' for '{originalNameNoExt}'")
+  try:
+    pageBlock = nCl.get_block(notionId)
+  except:
+    # print("Encountered a Notion ID that did not resolve when attempting to download.")
+    error_count['ClientHTTP'] += 1
+    return (None, None, None)
+  # print(f"Was type '{type(pageBlock).__name__}'")
   # The ID might not be a PageBlock (like when a note with no child PageBlocks
   # has an image in it, generating a folder, Notion uses the ID of the first
   # ImageBlock, maybe a bug on Notion's end? lol)
   while not isinstance(pageBlock, PageBlock):
-    pageBlock = pageBlock.parent
-    #print(f"Found parent '{type(pageBlock).__name__}' instead")
+    try:
+      pageBlock = pageBlock.parent
+      # print(f"Found parent '{type(pageBlock).__name__}' instead")
+      break
+    except AttributeError:
+      for block in pageBlock.children:
+        try:
+          pageBlock = block
+          if isinstance(pageBlock, Block):
+            break
+            # If the pageBlock has no attribute 'parent', use the pageBlock's first valid child block instead.
+            # print(f"Found child '{type(pageBlock).__name__}' instead")
+        except TypeError:
+          continue
+        else:
+          continue
+    else:
+      # If the block has no valid parent and no valid children, act as though it had failed the earlier match
+      error_count['NoParent'] += 1
+      return (None, None, None)
 
   # Check for name truncation
   newName = match[1]
@@ -243,7 +268,12 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
             mdFileData = mdFileRewrite(renamer, relPath, mdFileContents=mdFileData, removeTopH1=removeTopH1, rewritePaths=rewritePaths)
 
             print(f"Writing '{newPath}' with time '{lastEditedTime}' renamed from '{relPath}'")
-            zi = zipfile.ZipInfo(newPath, lastEditedTime.timetuple())
+            try:
+              zi = zipfile.ZipInfo(newPath, lastEditedTime.timetuple())
+            except AttributeError as error:
+              zi = zipfile.ZipInfo(newPath, date_time=(1980,1,1,0,0,0))
+              error_count['NoneTime'] += 1
+              # print(f"The timestamp returned a NoneType value, file time set to limit by default: {error}")
             zf.writestr(zi, mdFileData)
           else:
             print(f"Writing '{newPath}'")
@@ -269,6 +299,9 @@ def cli(argv):
   nCl = NotionClient(token_v2=args.token_v2)
   rewriteNotionZip(nCl, args.zip_path, outputPath=args.output_path, removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)
   print("--- Finished in %s seconds ---" % (time.time() - startTime))
+  print(f"Number of blocks with no ID, parent.id, or child.id:	{error_count['NoParent']}")
+  print(f"Number of blocks that failed HTTP request resolution:	{error_count['ClientHTTP']}")
+  print(f"Number of blocks whose time values failed to load:	{error_count['NoneTime']}")
 
 if __name__ == "__main__":
   cli(sys.argv[1:])
