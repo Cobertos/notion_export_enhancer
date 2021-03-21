@@ -12,6 +12,8 @@ from pathlib import Path
 from notion.client import NotionClient
 from notion.block import PageBlock
 
+error_count = { 'NoParent' : 0, 'ClientHTTP' : 0, 'NoneTime' : 0}
+
 def noteNameRewrite(nCl, originalNameNoExt):
   """
   Takes original name (with no extension) and renames it using the Notion ID
@@ -26,15 +28,28 @@ def noteNameRewrite(nCl, originalNameNoExt):
   notionId = match[2]
 
   # Query notion for the ID
-  #print(f"Fetching Notion ID '{notionId}' for '{originalNameNoExt}'")
-  pageBlock = nCl.get_block(notionId)
-  #print(f"Was type '{type(pageBlock).__name__}'")
+  print(f"Fetching Notion ID '{notionId}' for '{originalNameNoExt}'")
+  try:
+    pageBlock = nCl.get_block(notionId)
+    print("Request success")
+  except:
+    print("Encountered a Notion ID that did not resolve when attempting to load.")
+    return(None, None, None)
+    
+  # print(f"Was type '{type(pageBlock).__name__}'")
   # The ID might not be a PageBlock (like when a note with no child PageBlocks
   # has an image in it, generating a folder, Notion uses the ID of the first
   # ImageBlock, maybe a bug on Notion's end? lol)
-  while not isinstance(pageBlock, PageBlock):
-    pageBlock = pageBlock.parent
-    #print(f"Found parent '{type(pageBlock).__name__}' instead")
+  
+  if hasattr(pageBlock, 'parent') and pageBlock is not None:
+    for block in pageBlock.children:
+      if isinstance(block, PageBlock):
+        pageBlock = block
+        break
+      else:
+        continue
+  else:
+    return (None, None, None)
 
   # Check for name truncation
   newName = match[1]
@@ -48,15 +63,55 @@ def noteNameRewrite(nCl, originalNameNoExt):
       newName = newName[0:200]
 
   # Add icon to the front if it's there and usable
-  icon = pageBlock.icon
-  if icon and EmojiExtractor().big_regex.match(icon): # A full match of a single emoji, might be None or an https://aws.amazon uploaded icon
-    newName = f"{icon} {newName}"
+  if hasattr(pageBlock, 'icon'):  
+    icon = pageBlock.icon
+    if icon and EmojiExtractor().big_regex.match(icon): # A full match of a single emoji, might be None or an https://aws.amazon uploaded icon
+      newName = f"{icon} {newName}"
 
   # Also get the times to set the file to
   createdTime = datetime.fromtimestamp(int(pageBlock._get_record_data()["created_time"])/1000)
   lastEditedTime = datetime.fromtimestamp(int(pageBlock._get_record_data()["last_edited_time"])/1000)
 
   return (newName, createdTime, lastEditedTime)
+
+def dateInput():
+  """
+  Asks the user what they'd like to do to recover from a block's
+  time information not coming through properly. Uses an input() function
+  to control how the function behaves and returns.
+  """
+
+  funcMessage = """This block's creation and last-edited times have been corrupted.\n
+  Would you like to (please enter a number from 1 to 3):\n
+  1. Use a default date (to manually change later),\n
+  2. Enter a custome date,\n
+  3. Skip loading this block.\n
+  """    
+  
+  zipTimeTuple = (0, 0, 0, 0, 0, 0)
+  rawchoice = 1 # Giving rawchoice a default value to avoid carryover None bug
+  rawchoice = input(funcMessage)
+  if (rawchoice is not None) and (rawchoice != ""):
+    print("Rawchoice is not None.")
+    userChoice = int(rawchoice)
+    print(type(userChoice), ": ", userChoice)
+    if userChoice == 1:
+      zipTimeTuple = (1980, 1, 1, 0, 0, 0)
+      return zipTimeTuple
+    elif userChoice == 2:
+      while (zipTimeTuple[0] not in range(1980, 2100)) and (zipTimeTuple[1] not in range(1, 13)) and (zipTimeTuple[2] not in range(1, 32)) and (zipTimeTuple[3] not in range(1, 13)) and (zipTimeTuple[4] not in range(1, 60)) and (zipTimeTuple[5] not in range(1, 60)):
+        print("Please follow the ranges requested or the questions will loop until you do.")
+        zipTimeTuple = (int(input("Year (format YYYY): ")), int(input("Month (format 1-12): ")), int(input("Day (format 1-31): ")), int(input("Hour (format 1-12): ")), int(input("Minute (format 1-59): ")), int(input("Second (format 1-59): ")))
+        return zipTimeTuple
+    elif userChoice == 3:
+      zipTimeTuple = (0, 0, 0, 0, 0, 0)
+      return zipTimeTuple
+    else:
+      print("Sorry, could you please make sure your response is a digit from 1 to 3?")
+      onceMore = dateInput()
+  else:
+    print("Sorry, could you please make sure your response is a digit from 1 to 3?")
+    onceMore = dateInput()
 
 class NotionExportRenamer:
   def __init__(self, notionClient, rootPath):
@@ -243,7 +298,17 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
             mdFileData = mdFileRewrite(renamer, relPath, mdFileContents=mdFileData, removeTopH1=removeTopH1, rewritePaths=rewritePaths)
 
             print(f"Writing '{newPath}' with time '{lastEditedTime}' renamed from '{relPath}'")
-            zi = zipfile.ZipInfo(newPath, lastEditedTime.timetuple())
+            try:
+              zi = zipfile.ZipInfo(newPath, lastEditedTime.timetuple())
+            except (TypeError, AttributeError) as error:
+              dateResponse = dateInput()
+              print(dateResponse)
+              if dateResponse == (0, 0, 0, 0, 0, 0):
+                print("Null tuple should collapse this loop before assignment.")
+                break
+              zi = zipfile.ZipInfo(newPath, dateResponse)
+              error_count['NoneTime'] += 1
+              # print(f"The timestamp returned a NoneType value, file time set to limit by default: {error}")
             zf.writestr(zi, mdFileData)
           else:
             print(f"Writing '{newPath}'")
@@ -269,6 +334,9 @@ def cli(argv):
   nCl = NotionClient(token_v2=args.token_v2)
   rewriteNotionZip(nCl, args.zip_path, outputPath=args.output_path, removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)
   print("--- Finished in %s seconds ---" % (time.time() - startTime))
+  print(f"Number of blocks with no ID, parent.id, or child.id:	{error_count['NoParent']}")
+  print(f"Number of blocks that failed HTTP request resolution:	{error_count['ClientHTTP']}")
+  print(f"Number of blocks whose time values failed to load:	{error_count['NoneTime']}")
 
 if __name__ == "__main__":
   cli(sys.argv[1:])
