@@ -1,3 +1,7 @@
+"""
+Takes a [Notion.so](https://notion.so) export .zip and enhances it
+"""
+
 import tempfile
 import sys
 import os
@@ -6,9 +10,9 @@ import re
 import argparse
 import zipfile
 import urllib.parse
-from emoji_extractor.extract import Extractor as EmojiExtractor
 from datetime import datetime
 from pathlib import Path
+from emoji_extractor.extract import Extractor as EmojiExtractor
 from notion.client import NotionClient
 from notion.block import PageBlock
 
@@ -59,6 +63,10 @@ def noteNameRewrite(nCl, originalNameNoExt):
   return (newName, createdTime, lastEditedTime)
 
 class NotionExportRenamer:
+  """
+  Holds state information for renaming a single Notion.so export. Allows it to avoid
+  naming collisions and store other state
+  """
   def __init__(self, notionClient, rootPath):
     self.notionClient = notionClient
     self.rootPath = rootPath
@@ -252,6 +260,9 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
 
 
 def cli(argv):
+  """
+  CLI entrypoint, takes CLI arguments array
+  """
   parser = argparse.ArgumentParser(description='Prettifies Notion .zip exports')
   parser.add_argument('token_v2', type=str,
                       help='the token for your Notion.so session')
@@ -267,7 +278,8 @@ def cli(argv):
 
   startTime = time.time()
   nCl = NotionClient(token_v2=args.token_v2)
-  rewriteNotionZip(nCl, args.zip_path, outputPath=args.output_path, removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)
+  rewriteNotionZip(nCl, args.zip_path, outputPath=args.output_path,
+    removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)
   print("--- Finished in %s seconds ---" % (time.time() - startTime))
 
 if __name__ == "__main__":
