@@ -12,4 +12,4 @@ coverage = "*"
 colorama = "*"
 
 [packages]
-notion_export_enhancer = {editable = true,path = "."}
+notion_export_enhancer = {editable = true, path = "."}
