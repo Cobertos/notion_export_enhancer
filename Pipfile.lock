@@ -79,12 +79,8 @@
             "version": "==2.10"
         },
         "notion": {
-            "hashes": [
-                "sha256:a6c511e1055bb69f05d75220f3f6a5de377a52d42ae38186c3138557c6b4942a",
-                "sha256:cc380ea2ffe70ee8d5f19244df910cc79ea56a577ca569553d30f8798f0b5b61"
-            ],
-            "markers": "python_version >= '3.5'",
-            "version": "==0.0.28"
+            "git": "ssh://git@github.com/Cobertos/notion-py.git",
+            "ref": "c4e67e5b2d8efeedbbc9c48d6947bab3cabca1c5"
         },
         "notion-export-enhancer": {
             "editable": true,
@@ -338,11 +334,11 @@
         },
         "jeepney": {
             "hashes": [
-                "sha256:7d59b6622675ca9e993a6bd38de845051d315f8b0c72cca3aef733a20b648657",
-                "sha256:aec56c0eb1691a841795111e184e13cad504f7703b9a64f63020816afa79a8ae"
+                "sha256:1237cd64c8f7ac3aa4b3f332c4d0fb4a8216f39eaa662ec904302d4d77de5a54",
+                "sha256:71335e7a4e93817982f473f3507bffc2eff7a544119ab9b73e089c8ba1409ba3"
             ],
             "markers": "sys_platform == 'linux'",
-            "version": "==0.6.0"
+            "version": "==0.7.0"
         },
         "keyring": {
             "hashes": [
@@ -362,10 +358,10 @@
         },
         "pkginfo": {
             "hashes": [
-                "sha256:029a70cb45c6171c329dfc890cde0879f8c52d6f3922794796e06f577bb03db4",
-                "sha256:9fdbea6495622e022cc72c2e5e1b735218e4ffb2a2a69cde2694a6c1f16afb75"
+                "sha256:37ecd857b47e5f55949c41ed061eb51a0bee97a87c969219d144c0e023982779",
+                "sha256:e7432f81d08adec7297633191bbf0bd47faf13cd8724c3a13250e51d542635bd"
             ],
-            "version": "==1.7.0"
+            "version": "==1.7.1"
         },
         "pluggy": {
             "hashes": [

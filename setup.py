@@ -24,7 +24,7 @@ setup(
     ],
     install_requires=[
         'emoji_extractor>=1.0.19',
-        'notion>=0.0.28',
+        'notion @ git+ssh://git@github.com/Cobertos/notion-py.git@master',
     ],
     keywords='notion notion.so notion-py markdown md export enhance enhancer',
     packages=['notion_export_enhancer']

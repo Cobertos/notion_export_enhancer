@@ -278,9 +278,10 @@ def cli(argv):
 
   startTime = time.time()
   nCl = NotionClient(token_v2=args.token_v2)
-  rewriteNotionZip(nCl, args.zip_path, outputPath=args.output_path,
+  outFileName = rewriteNotionZip(nCl, args.zip_path, outputPath=args.output_path,
     removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)
   print("--- Finished in %s seconds ---" % (time.time() - startTime))
+  print(f"Output file written as '{outFileName}'")
 
 if __name__ == "__main__":
   cli(sys.argv[1:])
