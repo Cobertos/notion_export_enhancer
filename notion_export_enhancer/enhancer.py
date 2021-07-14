@@ -12,6 +12,8 @@ import zipfile
 import urllib.parse
 from datetime import datetime
 from pathlib import Path
+import backoff
+import requests
 from emoji_extractor.extract import Extractor as EmojiExtractor
 from notion.client import NotionClient
 from notion.block import PageBlock
@@ -31,13 +33,37 @@ def noteNameRewrite(nCl, originalNameNoExt):
 
   # Query notion for the ID
   #print(f"Fetching Notion ID '{notionId}' for '{originalNameNoExt}'")
-  pageBlock = nCl.get_block(notionId)
-  #print(f"Was type '{type(pageBlock).__name__}'")
+  try:
+    pageBlock = nCl.get_block(notionId)
+  except requests.exceptions.HTTPError:
+    print(f"Failed to retrieve ID {notionId}")
+    return (None, None, None)
+
   # The ID might not be a PageBlock (like when a note with no child PageBlocks
   # has an image in it, generating a folder, Notion uses the ID of the first
   # ImageBlock, maybe a bug on Notion's end? lol)
-  while not isinstance(pageBlock, PageBlock):
-    pageBlock = pageBlock.parent
+  if not isinstance(pageBlock, PageBlock):
+    print(f"Block at ID {notionId}, was not PageBlock. Was {type(pageBlock).__name__}")
+    if hasattr(pageBlock, 'parent') and pageBlock.parent is not None:
+      # Try traversing up the parents for the first page
+      while hasattr(pageBlock, 'parent') and not isinstance(pageBlock, PageBlock):
+        pageBlock = pageBlock.parent
+      if isinstance(pageBlock, PageBlock):
+        print(f"Using some .parent as PageBlock")
+    elif hasattr(pageBlock, 'children') and pageBlock.children is not None:
+      # Try to find a PageBlock in the children, but only use if one single one exists
+      pageBlockChildren = [c for c in pageBlock.children if isinstance(c, PageBlock)]
+      if len(pageBlockChildren) != 1:
+        print(f"Ambiguous .children, contained {len(pageBlockChildren)} chlidren PageBlocks")
+      else:
+        print(f"Using .children[0] as PageBlock")
+        pageBlock = pageBlockChildren[0]
+
+  if not isinstance(pageBlock, PageBlock):
+    print(f"Failed to retrieve PageBlock for ID {notionId}")
+    return (None, None, None)
+
+  
     #print(f"Found parent '{type(pageBlock).__name__}' instead")
 
   # Check for name truncation
@@ -242,6 +268,8 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
           # print(f"Reading '{root}' '{name}'")
 
           # Rewrite the current path and get the times from Notion
+          print("---")
+          print(f"Working on '{relPath}'")
           newPath, createdTime, lastEditedTime = renamer.renamePathAndTimesWithNotion(relPath)
 
           if os.path.splitext(name)[1] == ".md":
@@ -250,11 +278,11 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
               mdFileData = f.read()
             mdFileData = mdFileRewrite(renamer, relPath, mdFileContents=mdFileData, removeTopH1=removeTopH1, rewritePaths=rewritePaths)
 
-            print(f"Writing '{newPath}' with time '{lastEditedTime}' renamed from '{relPath}'")
+            print(f"Writing as '{newPath}' with time '{lastEditedTime}'")
             zi = zipfile.ZipInfo(newPath, lastEditedTime.timetuple())
             zf.writestr(zi, mdFileData)
           else:
-            print(f"Writing '{newPath}'")
+            print(f"Writing as '{newPath}' with time from original export (not an .md file)")
             zf.write(realPath, newPath)
   return newZipPath
 
@@ -278,6 +306,11 @@ def cli(argv):
 
   startTime = time.time()
   nCl = NotionClient(token_v2=args.token_v2)
+  nCl.get_block = backoff.on_exception(backoff.expo,
+                      requests.exceptions.HTTPError,
+                      max_tries=5,
+                      )(nCl.get_block)
+
   outFileName = rewriteNotionZip(nCl, args.zip_path, outputPath=args.output_path,
     removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)
   print("--- Finished in %s seconds ---" % (time.time() - startTime))

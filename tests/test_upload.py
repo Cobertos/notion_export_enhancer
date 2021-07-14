@@ -3,14 +3,16 @@ Tests NotionPyRenderer parsing
 '''
 import pytest
 from datetime import datetime
+import io
 import sys
 import os
 import re
 import zipfile
+import requests
 from notion_export_enhancer.enhancer import noteNameRewrite, NotionExportRenamer, \
     mdFileRewrite, rewriteNotionZip
-from notion.block import PageBlock
-from unittest.mock import Mock
+from notion.block import PageBlock, ImageBlock
+from unittest.mock import Mock, patch
 
 #No-op, seal doesn't exist in Python 3.6
 if sys.version_info >= (3,7,0):
@@ -22,18 +24,27 @@ testsRoot = os.path.dirname(os.path.realpath(__file__))
 defaultBlockTimeNotion = "7955187742000" #2/2/2222 22:22:22
 defaultBlockTime = datetime.fromtimestamp(7955187742)
 
-def MockBlock(title='', icon=None, createdTime=defaultBlockTimeNotion, lastEditedTime=None, spec=PageBlock):
+def MockBlock(title='', icon=None, createdTime=defaultBlockTimeNotion, lastEditedTime=None, spec=PageBlock, parent=None, children=None):
     mockBlock = Mock(spec=spec)
     mockBlock._get_record_data = Mock(return_value={ "created_time": createdTime, "last_edited_time": lastEditedTime or createdTime })
     mockBlock.icon = icon
     mockBlock.title = title
+    mockBlock.parent = parent
+    mockBlock.children = children
     seal(mockBlock)
     return mockBlock
 
 def MockClient(blockMap={}):
     notionClient = Mock()
     notionClient.return_value = notionClient
-    notionClient.get_block = lambda bId: blockMap[bId]
+
+    def get_block(bId):
+        ret = blockMap[bId]
+        if isinstance(ret, Exception):
+            raise ret
+        else:
+            return ret
+    notionClient.get_block = get_block
     seal(notionClient)
     return notionClient
 
@@ -58,6 +69,78 @@ def test_noteNameRewrite_name():
 
     #assert
     assert ret == ('asdf', defaultBlockTime, defaultBlockTime)
+
+@patch('sys.stdout', new_callable=io.StringIO)
+def test_noteNameRewrite_HTTPError(mockStdout):
+    '''HTTPError will skip'''
+    #arrange
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': requests.exceptions.HTTPError('asdf')
+    })
+
+    #act
+    ret = noteNameRewrite(nCl, 'asdf 0123456789abcdef0123456789abcdef')
+
+    #assert
+    assert ret == (None, None, None)
+    assert re.search(r"Failed", mockStdout.getvalue(), flags=re.IGNORECASE)
+
+def test_noteNameRewrite_returns_imageblock_with_parent():
+    '''HTTPError will skip'''
+    #arrange
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': MockBlock(spec=ImageBlock, parent=MockBlock('yyyy'))
+    })
+
+    #act
+    ret = noteNameRewrite(nCl, 'yyyy 0123456789abcdef0123456789abcdef')
+
+    #assert
+    assert ret == ('yyyy', defaultBlockTime, defaultBlockTime)
+
+def test_noteNameRewrite_returns_imageblock_with_children():
+    '''HTTPError will skip'''
+    #arrange
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': MockBlock(spec=ImageBlock, children=[MockBlock('yyyy')])
+    })
+
+    #act
+    ret = noteNameRewrite(nCl, 'yyyy 0123456789abcdef0123456789abcdef')
+
+    #assert
+    assert ret == ('yyyy', defaultBlockTime, defaultBlockTime)
+
+@patch('sys.stdout', new_callable=io.StringIO)
+def test_noteNameRewrite_returns_imageblock_with_multiple_children(mockStdout):
+    '''HTTPError will skip'''
+    #arrange
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': MockBlock(spec=ImageBlock, children=[MockBlock('aaaa'), MockBlock('yyyy')])
+    })
+
+    #act
+    ret = noteNameRewrite(nCl, 'yyyy 0123456789abcdef0123456789abcdef')
+
+    #assert
+    assert ret == (None, None, None)
+    assert re.search(r"Failed", mockStdout.getvalue(), flags=re.IGNORECASE)
+    assert re.search(r"Ambiguous", mockStdout.getvalue(), flags=re.IGNORECASE)
+
+@patch('sys.stdout', new_callable=io.StringIO)
+def test_noteNameRewrite_returns_imageblock_with_no_connection(mockStdout):
+    '''HTTPError will skip'''
+    #arrange
+    nCl = MockClient({
+        '0123456789abcdef0123456789abcdef': MockBlock(spec=ImageBlock)
+    })
+
+    #act
+    ret = noteNameRewrite(nCl, 'yyyy 0123456789abcdef0123456789abcdef')
+
+    #assert
+    assert ret == (None, None, None)
+    assert re.search(r"Failed", mockStdout.getvalue(), flags=re.IGNORECASE)
 
 def test_noteNameRewrite_long_names():
     '''it will retruncate names from Notion'''

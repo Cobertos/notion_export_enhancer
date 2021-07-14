@@ -23,6 +23,7 @@ setup(
         'Topic :: Utilities'
     ],
     install_requires=[
+        'backoff>=1.11.0',
         'emoji_extractor>=1.0.19',
         'notion @ git+https://github.com/Cobertos/notion-py.git@master',
     ],
