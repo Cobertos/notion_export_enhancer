@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='notion_export_enhancer',
-    version='0.0.6',
+    version='0.0.7',
     description='Export and _enhance_, takes Notion\'s export and makes it just a bit more usable.',
     long_description=open('README.md', 'r').read(),
     long_description_content_type="text/markdown",
@@ -25,7 +25,7 @@ setup(
     install_requires=[
         'backoff>=1.11.0',
         'emoji_extractor>=1.0.19',
-        'notion @ git+https://github.com/Cobertos/notion-py.git@master',
+        'notion-cobertos-fork>=0.0.29',
     ],
     keywords='notion notion.so notion-py markdown md export enhance enhancer',
     packages=['notion_export_enhancer']
