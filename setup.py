@@ -23,9 +23,8 @@ setup(
         'Topic :: Utilities'
     ],
     install_requires=[
-        'backoff>=1.11.0',
-        'emoji_extractor>=1.0.19',
-        'notion-cobertos-fork>=0.0.29',
+        'notion-client>=0.6.0',
+        'python-dateutil>=2.8.2 ',
     ],
     keywords='notion notion.so notion-py markdown md export enhance enhancer',
     packages=['notion_export_enhancer']

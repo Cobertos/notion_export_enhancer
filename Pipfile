@@ -13,3 +13,4 @@ colorama = "*"
 
 [packages]
 notion_export_enhancer = {editable = true, path = "."}
+

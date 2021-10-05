@@ -10,13 +10,10 @@ import re
 import argparse
 import zipfile
 import urllib.parse
-from datetime import datetime
 from pathlib import Path
-import backoff
-import requests
-from emoji_extractor.extract import Extractor as EmojiExtractor
-from notion.client import NotionClient
-from notion.block import PageBlock
+from datetime import datetime
+from dateutil.parser import isoparse
+import notion_client
 
 def noteNameRewrite(nCl, originalNameNoExt):
   """
@@ -32,39 +29,66 @@ def noteNameRewrite(nCl, originalNameNoExt):
   notionId = match[2]
 
   # Query notion for the ID
-  #print(f"Fetching Notion ID '{notionId}' for '{originalNameNoExt}'")
+  print(f"Fetching Notion ID '{notionId}' for '{originalNameNoExt}'")
   try:
-    pageBlock = nCl.get_block(notionId)
-  except requests.exceptions.HTTPError:
+    page = nCl.pages.retrieve(notionId)
+    # Returns something like
+    # 'object': 'page',
+    # 'id': '344a0b8c-dccc-430a-9e0d-3997f3e12056',
+    # 'created_time': '2019-11-17T23:11:00.000Z',
+    # 'last_edited_time': '2021-10-04T22:40:00.000Z',
+    # 'cover': None,
+    # 'icon': {
+    #   'type': 'emoji',
+    #   'emoji': '🦇'
+    # },
+    # 'parent': {
+    #   'type': 'workspace',
+    #   'workspace': True
+    # },
+    # 'archived': False,
+    # 'properties': {
+    #   'title': {
+    #     'id': 'title',
+    #     'type': 'title',
+    #     'title': [{
+    #       'type': 'text',
+    #       'text': {
+    #         'content': 'Identiddy',
+    #         'link': None
+    #       },
+    #       'annotations': {
+    #         'bold': False,
+    #         'italic': False,
+    #         'strikethrough': False,
+    #         'underline': False,
+    #         'code': False,
+    #         'color': 'default'
+    #       },
+    #       'plain_text': 'Identiddy',
+    #       'href': None
+    #     }]
+    #   }
+    # },
+    # 'url': 'https://www.notion.so/Identiddy-344a0b8cdccc430a9e0d3997f3e12056'
+  except notion_client.errors.APIResponseError:
+    # Page didn't exist, but maybe it was a block?
+    # The ID might not be a PageBlock (like when a note with no child PageBlocks
+    # has an image in it, generating a folder, Notion uses the ID of the first
+    # ImageBlock, maybe a bug on Notion's end? lol)
+    try:
+      block = nCl.blocks.retrieve(notionId)
+    except notion_client.errors.APIResponseError:
+      return (None, None, None)
+      print(f"Failed to retrieve ID {notionId}")
+
+    # Try to rewrite block to be compatible with page
     print(f"Failed to retrieve ID {notionId}")
+    print(f"ID {notionId} was not Page. Was {block['type']}")
+
+    # Handle child_database: {'object': 'block', 'id': '3ca1fc80-087a-48ef-82d4-433bf279bc4e', 'created_time': '2019-12-29T23:21:00.000Z', 'last_edited_time': '2021-10-05T01:00:00.000Z', 'has_children': False, 'archived': False, 'type': 'child_database', 'child_database': {'title': 'awfawfa'}}
+
     return (None, None, None)
-
-  # The ID might not be a PageBlock (like when a note with no child PageBlocks
-  # has an image in it, generating a folder, Notion uses the ID of the first
-  # ImageBlock, maybe a bug on Notion's end? lol)
-  if not isinstance(pageBlock, PageBlock):
-    print(f"Block at ID {notionId}, was not PageBlock. Was {type(pageBlock).__name__}")
-    if hasattr(pageBlock, 'parent') and pageBlock.parent is not None:
-      # Try traversing up the parents for the first page
-      while hasattr(pageBlock, 'parent') and not isinstance(pageBlock, PageBlock):
-        pageBlock = pageBlock.parent
-      if isinstance(pageBlock, PageBlock):
-        print(f"Using some .parent as PageBlock")
-    elif hasattr(pageBlock, 'children') and pageBlock.children is not None:
-      # Try to find a PageBlock in the children, but only use if one single one exists
-      pageBlockChildren = [c for c in pageBlock.children if isinstance(c, PageBlock)]
-      if len(pageBlockChildren) != 1:
-        print(f"Ambiguous .children, contained {len(pageBlockChildren)} chlidren PageBlocks")
-      else:
-        print(f"Using .children[0] as PageBlock")
-        pageBlock = pageBlockChildren[0]
-
-  if not isinstance(pageBlock, PageBlock):
-    print(f"Failed to retrieve PageBlock for ID {notionId}")
-    return (None, None, None)
-
-  
-    #print(f"Found parent '{type(pageBlock).__name__}' instead")
 
   # Check for name truncation
   newName = match[1]
@@ -72,19 +96,18 @@ def noteNameRewrite(nCl, originalNameNoExt):
     # Use full name instead, invalids replaced with " ", like the normal export
     # TODO: These are just Windows reserved characters
     # TODO: 200 was just a value to stop Windows from complaining
-    newName = re.sub(r"[\\/?:*\"<>|]", " ", pageBlock.title)
+    newName = re.sub(r"[\\/?:*\"<>|]", " ", page["properties"]["title"]["plain_text"])
     if len(newName) > 200:
       print(f"'{newName}' too long, truncating to 200")
       newName = newName[0:200]
 
   # Add icon to the front if it's there and usable
-  icon = pageBlock.icon
-  if icon and EmojiExtractor().big_regex.match(icon): # A full match of a single emoji, might be None or an https://aws.amazon uploaded icon
-    newName = f"{icon} {newName}"
+  if page["icon"] and page["icon"]["type"] == 'emoji':
+    newName = f"{page['icon']['emoji']} {newName}"
 
   # Also get the times to set the file to
-  createdTime = datetime.fromtimestamp(int(pageBlock._get_record_data()["created_time"])/1000)
-  lastEditedTime = datetime.fromtimestamp(int(pageBlock._get_record_data()["last_edited_time"])/1000)
+  createdTime = isoparse(page["created_time"])
+  lastEditedTime = isoparse(page["last_edited_time"])
 
   return (newName, createdTime, lastEditedTime)
 
@@ -239,7 +262,7 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
   * Fix links inside of files
   * Optionally remove titles at the tops of files
 
-  @param {NotionClient} notionClient The NotionClient to use to query Notion with
+  @param {notion_client.Client} notionClient The Client to use to query Notion with
   @param {string} zipPath The path to the Notion zip
   @param {string} [outputPath="."] Optional output path, otherwise will use cwd
   @param {boolean} [removeTopH1=False] To remove titles at the top of all the md files
@@ -278,6 +301,8 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
               mdFileData = f.read()
             mdFileData = mdFileRewrite(renamer, relPath, mdFileContents=mdFileData, removeTopH1=removeTopH1, rewritePaths=rewritePaths)
 
+            if lastEditedTime is None:
+              lastEditedTime = datetime.now()
             print(f"Writing as '{newPath}' with time '{lastEditedTime}'")
             zi = zipfile.ZipInfo(newPath, lastEditedTime.timetuple())
             zf.writestr(zi, mdFileData)
@@ -292,7 +317,7 @@ def cli(argv):
   CLI entrypoint, takes CLI arguments array
   """
   parser = argparse.ArgumentParser(description='Prettifies Notion .zip exports')
-  parser.add_argument('token_v2', type=str,
+  parser.add_argument('integration_secret', type=str,
                       help='the token for your Notion.so session')
   parser.add_argument('zip_path', type=str,
                       help='the path to the Notion exported .zip file')
@@ -305,11 +330,7 @@ def cli(argv):
   args = parser.parse_args(argv)
 
   startTime = time.time()
-  nCl = NotionClient(token_v2=args.token_v2)
-  nCl.get_block = backoff.on_exception(backoff.expo,
-                      requests.exceptions.HTTPError,
-                      max_tries=5,
-                      )(nCl.get_block)
+  nCl = notion_client.Client(auth=args.integration_secret)
 
   outFileName = rewriteNotionZip(nCl, args.zip_path, outputPath=args.output_path,
     removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)

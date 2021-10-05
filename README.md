@@ -30,6 +30,22 @@ Supports Python 3.6+
 
 ## Usage from CLI
 
+* Create a Notion internal integration
+  * Go to Notion's [My Integrations page](https://www.notion.so/my-integrations)
+  * Create a New Integration
+  * Fill in all the Basic Information and selected the Associated workspace you want to export
+  * Copy the `Internal Integration Token`
+
+<p align="center">
+  <img alt="Notion integration secrets page showing Internal Integration Token" src="https://raw.githubusercontent.com/Cobertos/notion_export_enhancer/owo/media/integration-secrets.png">
+</p>
+
+* Share all Workspace pages with your internal integration
+
+<p align="center">
+  <img alt="Dialog showing a page shared with an internal integration" src="https://raw.githubusercontent.com/Cobertos/notion_export_enhancer/owo/media/share-integration.png">
+</p>
+
 * Export your notion workspace
   * You can export a single workspace from `Settings > [Workspace] Settings > Export Content > Export all workspace content`
 
@@ -39,8 +55,8 @@ Supports Python 3.6+
 
   * Choose export option `"Markdown & CSV"`
 * `pip install notion_export_enhancer`
-* Then run like `python -m notion_export_enhancer [token_v2] [path_to_zip]`
-  * `token_v2` is your Notion.so token, which can be obtained by inspecting your browser cookies on a logged-in (non-guest) session on Notion.so
+* Then run like `python -m notion_export_enhancer [integration_secret] [path_to_zip]`
+  * `integration_secret` is the `Internal Integration Token` retrieved in the first step
 
 There are also some configuration options:
 
