@@ -109,6 +109,17 @@ class NotionExportRenamer:
     # have the same name and to act accordingly
     self._collisionCache = {}
     self.moveMdToFolder = moveMdToFolder
+  
+  def resolveNameCollision(self, path, nameNoExt, ext):
+    i = 0
+    newNameNoExt = nameNoExt
+    while True:
+      newName = f'{newNameNoExt}{ext}'
+      newPath = os.path.join(path, newName)
+      if newPath not in self._collisionCache:
+        return newName, newPath
+      i += 1
+      newNameNoExt = f'{nameNoExt} ({i})'
 
   def renameAndTimesWithNotion(self, pathToRename):
     """
@@ -134,18 +145,10 @@ class NotionExportRenamer:
         if self.moveMdToFolder and p.exists() and p.is_dir():
           # NOTE: newNameNoExt can contain a '/' for path joining later!
           newNameNoExt = os.path.join(newNameNoExt, "!index")
-
-      # Check to see if name collides
-      if os.path.join(path, newNameNoExt) in self._collisionCache:
-        # If it does, try progressive (i) until a new one is found
-        i = 1
-        collidingNameNoExt = newNameNoExt
-        while os.path.join(path, newNameNoExt) in self._collisionCache:
-          newNameNoExt = f"{collidingNameNoExt} ({i})"
-          i += 1
-
-      self._renameCache[pathToRename] = (f"{newNameNoExt}{ext}", createdTime, lastEditedTime)
-      self._collisionCache[os.path.join(path, newNameNoExt)] = True
+      
+      newName, newPath = self.resolveNameCollision(path, newNameNoExt, ext)
+      self._renameCache[pathToRename] = (newName, createdTime, lastEditedTime)
+      self._collisionCache[newPath] = True
 
     return self._renameCache[pathToRename]
 
