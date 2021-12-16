@@ -93,7 +93,11 @@ class NotionExportRenamer:
   Holds state information for renaming a single Notion.so export. Allows it to avoid
   naming collisions and store other state
   """
-  def __init__(self, notionClient, rootPath):
+  def __init__(self, notionClient, rootPath, moveMdToFolder=True):
+    """
+    @param {boolean} [moveMdToFolder=True] To moves root md files into the folder with their
+    name, giving them a name like !index.md instead so they sort to the top.
+    """
     self.notionClient = notionClient
     self.rootPath = rootPath
     # Dict containing all the paths we've renamed and what they were renamed to
@@ -104,6 +108,18 @@ class NotionExportRenamer:
     # renamed mapped to True. Used to see if other files in the folder might
     # have the same name and to act accordingly
     self._collisionCache = {}
+    self.moveMdToFolder = moveMdToFolder
+  
+  def resolveNameCollision(self, path, nameNoExt, ext):
+    i = 0
+    newNameNoExt = nameNoExt
+    while True:
+      newName = f'{newNameNoExt}{ext}'
+      newPath = os.path.join(path, newName)
+      if newPath not in self._collisionCache:
+        return newName, newPath
+      i += 1
+      newNameNoExt = f'{nameNoExt} ({i})'
 
   def renameAndTimesWithNotion(self, pathToRename):
     """
@@ -126,21 +142,13 @@ class NotionExportRenamer:
       # Merge files into folders in path at same name if that folder exists
       if ext == '.md':
         p = Path(os.path.join(self.rootPath, path, nameNoExt))
-        if p.exists() and p.is_dir():
+        if self.moveMdToFolder and p.exists() and p.is_dir():
           # NOTE: newNameNoExt can contain a '/' for path joining later!
           newNameNoExt = os.path.join(newNameNoExt, "!index")
-
-      # Check to see if name collides
-      if os.path.join(path, newNameNoExt) in self._collisionCache:
-        # If it does, try progressive (i) until a new one is found
-        i = 1
-        collidingNameNoExt = newNameNoExt
-        while os.path.join(path, newNameNoExt) in self._collisionCache:
-          newNameNoExt = f"{collidingNameNoExt} ({i})"
-          i += 1
-
-      self._renameCache[pathToRename] = (f"{newNameNoExt}{ext}", createdTime, lastEditedTime)
-      self._collisionCache[os.path.join(path, newNameNoExt)] = True
+      
+      newName, newPath = self.resolveNameCollision(path, newNameNoExt, ext)
+      self._renameCache[pathToRename] = (newName, createdTime, lastEditedTime)
+      self._collisionCache[newPath] = True
 
     return self._renameCache[pathToRename]
 
@@ -229,7 +237,7 @@ def mdFileRewrite(renamer, mdFilePath, mdFileContents=None, removeTopH1=False, r
 
   return newMDFileContents
 
-def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, rewritePaths=True):
+def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, rewritePaths=True, moveMdToFolder=True):
   """
   Takes a Notion .zip and prettifies the whole thing
   * Removes all Notion IDs from end of names, folders and files
@@ -244,6 +252,8 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
   @param {string} [outputPath="."] Optional output path, otherwise will use cwd
   @param {boolean} [removeTopH1=False] To remove titles at the top of all the md files
   @param {boolean} [rewritePaths=True] To rewrite all the links and images in the Markdown files too
+  @param {boolean} [moveMdToFolder=True] To moves root md files into the folder with their
+  name, giving them a name like !index.md instead so they sort to the top.
   @returns {string} Path to the output zip file
   """
   with tempfile.TemporaryDirectory() as tmpDir:
@@ -259,7 +269,7 @@ def rewriteNotionZip(notionClient, zipPath, outputPath=".", removeTopH1=False, r
     with zipfile.ZipFile(newZipPath, 'w', zipfile.ZIP_DEFLATED) as zf:
 
       #Traverse over the files, renaming, modifying, and rewriting back to the zip
-      renamer = NotionExportRenamer(notionClient, tmpDir)
+      renamer = NotionExportRenamer(notionClient, tmpDir, moveMdToFolder)
       for tmpWalkDir, dirs, files in os.walk(tmpDir):
         walkDir = os.path.relpath(tmpWalkDir, tmpDir)
         for name in files:
@@ -302,6 +312,9 @@ def cli(argv):
                       help='Removes the title that Notion adds. H1s at the top of every file')
   parser.add_argument('--rewrite-paths', action='store_false', default=True,
                       help='Rewrite the paths in the Markdown files themselves to match file renaming')
+  parser.add_argument('--dont-move-md-to-folder', dest="move_md_to_folder",
+                      action='store_false', default=True,
+                      help='Don\'t moves root md files into the folder with their name')
   args = parser.parse_args(argv)
 
   startTime = time.time()
@@ -312,7 +325,8 @@ def cli(argv):
                       )(nCl.get_block)
 
   outFileName = rewriteNotionZip(nCl, args.zip_path, outputPath=args.output_path,
-    removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths)
+    removeTopH1=args.remove_title, rewritePaths=args.rewrite_paths, 
+    moveMdToFolder=args.move_md_to_folder)
   print("--- Finished in %s seconds ---" % (time.time() - startTime))
   print(f"Output file written as '{outFileName}'")
 
